@@ -4,14 +4,53 @@
 #include <XPT2046_Touchscreen.h>
 #include <WiFi.h>
 #include <ArtnetWifi.h>
+#include <esp_dmx.h>
+#include <WiFiUdp.h>
 
-
+// Config Net
 const char* ssid = "iPhone Pepon";
 const char* password = "1234qwer";
+//const char* ssid = "Motomami";
+//const char* password = "Soporte01";
 
+#define DHCP_DISABLED
+
+#ifdef DHCP_DISABLED
+IPAddress local_IP(192, 168, 1, 154);
+IPAddress gateway(192, 168, 1, 1);
+IPAddress subnet(255, 255, 255, 0);
+IPAddress primaryDNS(192, 168, 1, 1);  //optional
+IPAddress secondaryDNS(1, 1, 1, 1);    //optional
+#endif
 TFT_eSPI tft = TFT_eSPI();
 
-// Touchscreen pins
+WiFiUDP UdpSend;
+ArtnetWifi artnet;
+
+//config ArtNet
+
+int transmitPinA = 17;
+int receivePinA = 16;  // Not connected
+int enablePinA = 4;
+
+int transmitPinB = 21;
+int receivePinB = 16;  // Not connected
+int enablePinB = 19;
+
+dmx_port_t dmxPortA = 1;
+dmx_port_t dmxPortB = 2;
+
+byte dataA[DMX_PACKET_SIZE];
+byte dataB[DMX_PACKET_SIZE];
+
+const int startUniverse = 0;  
+const int maxUniverses = 2;
+const int numberOfChannels = 1024;
+bool universesReceived[maxUniverses];
+bool sendFrame = 1;
+int previousDataLength = 0;
+
+
 #define XPT2046_IRQ 36   // T_IRQ
 #define XPT2046_MOSI 32  // T_DIN
 #define XPT2046_MISO 39  // T_OUT
@@ -25,36 +64,28 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 #define SCREEN_HEIGHT 240
 #define FONT_SIZE 2
 
-// Touchscreen coordinates: (x, y) and pressure (z)
 int x, y, z;
 
 TaskHandle_t Task1;
 TaskHandle_t Task2;
 
-// Función de la tarea 1, que será asignada al núcleo 0
-void Task1code( void * parameter ) {
-  Serial.print("Task 1 is running on core ");
-  Serial.println(xPortGetCoreID());  // Imprime en qué núcleo está corriendo
-
-  for(;;) {  // Bucle infinito de la tarea
+void Task1code( void * parameter ) { 
+  for(;;) {  
     Serial.println("Task 1 is running");
-    delay(1000);  // Espera 1 segundo
-  }
+    delay(1000);
+  } 
 }
 
-// Función de la tarea 2, que será asignada al núcleo 1
+
 void Task2code( void * parameter ) {
-  Serial.print("Task 2 is running on core ");
-  Serial.println(xPortGetCoreID());  // Imprime en qué núcleo está corriendo
-
-  for(;;) {  // Bucle infinito de la tarea
+  for(;;) {  
     Serial.println("Task 2 is running");
-    delay(2000);  // Espera 2 segundos
+    delay(2000);  
   }
 }
 
 
-// Print Touchscreen info about X, Y and Pressure (Z) on the Serial Monitor
+
 void printTouchToSerial(int touchX, int touchY, int touchZ) {
   Serial.print("X = ");
   Serial.print(touchX);
@@ -65,9 +96,9 @@ void printTouchToSerial(int touchX, int touchY, int touchZ) {
   Serial.println();
 }
 
-// Print Touchscreen info about X, Y and Pressure (Z) on the TFT Display
+
 void printTouchToDisplay(int touchX, int touchY, int touchZ) {
-  // Clear TFT screen
+
   tft.fillScreen(TFT_WHITE);
   tft.setTextColor(TFT_BLACK, TFT_WHITE);
 
@@ -89,36 +120,84 @@ void printTouchToDisplay(int touchX, int touchY, int touchZ) {
 void setup() {
   Serial.begin(115200);
 
-  // Start the SPI for the touchscreen and init the touchscreen
   touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
   touchscreen.begin(touchscreenSPI);
-  // Set the Touchscreen rotation in landscape mode
-  // Note: in some displays, the touchscreen might be upside down, so you might need to set the rotation to 3: touchscreen.setRotation(3);
   touchscreen.setRotation(1);
 
-  // Start the tft display
   tft.init();
-  // Set the TFT display rotation in landscape mode
   tft.setRotation(1);
 
-  // Clear the screen before writing to it
-  tft.fillScreen(TFT_WHITE);
+  tft.fillScreen(TFT_BACKLIGHT_ON);
   tft.setTextColor(TFT_BLACK, TFT_WHITE);
   
-  // Set X and Y coordinates for center of display
   int centerX = SCREEN_WIDTH / 2;
   int centerY = SCREEN_HEIGHT / 2;
+
+  //Config Wifi & init Arnet
+  WiFi.begin(ssid, password);
+  Serial.println("\nConnecting");
+
+  while (WiFi.status() != WL_CONNECTED) {
+  Serial.print(".");
+  delay(100);
+  }
+
+  Serial.println("\nConnected to the WiFi network");
+  Serial.print("Local ESP32 IP: ");
+  Serial.println(WiFi.localIP());
+
+  artnet.setArtDmxCallback(onArtNetFrame);
+  artnet.begin("ESP32-ArtNet-to-DMX-Converter");
+
+  dmx_set_pin(dmxPortA, transmitPinA, receivePinA, enablePinA);
+  dmx_set_pin(dmxPortB, transmitPinB, receivePinB, enablePinB);
+
+  dmx_driver_install(dmxPortA, DMX_DEFAULT_INTR_FLAGS);
+  dmx_driver_install(dmxPortB, DMX_DEFAULT_INTR_FLAGS);
 
   tft.drawCentreString("Hello, world!", centerX, 30, FONT_SIZE);
   tft.drawCentreString("Touch screen to test", centerX, centerY, FONT_SIZE);
 }
 
+void onArtNetFrame(uint16_t universe, uint16_t numberOfChannels, uint8_t sequence, uint8_t* dmxData) {
+  sendFrame = 1;
+
+  if ((universe - startUniverse) < maxUniverses)
+    universesReceived[universe - startUniverse] = 1;
+
+  for (int i = 0; i < maxUniverses; i++) {
+    if (universesReceived[i] == 0) {
+      sendFrame = 0;
+      break;
+    }
+  }
+  
+  for (int i = 0; i < numberOfChannels; i++) {
+    if (universe == startUniverse)
+      dataA[i + 1] = dmxData[i];
+    else if (universe == startUniverse + 1)
+      dataB[i + 1] = dmxData[i];
+  }
+
+   
+  previousDataLength = numberOfChannels;
+
+  dmx_write(dmxPortA, dataA, DMX_MAX_PACKET_SIZE);
+  dmx_write(dmxPortB, dataB, DMX_MAX_PACKET_SIZE);
+  dmx_send(dmxPortA, DMX_PACKET_SIZE);
+  dmx_send(dmxPortB, DMX_PACKET_SIZE);
+  dmx_wait_sent(dmxPortA, DMX_TIMEOUT_TICK);
+  dmx_wait_sent(dmxPortB, DMX_TIMEOUT_TICK);
+  
+  memset(universesReceived, 0, maxUniverses);
+}
+
 void loop() {
-  // Checks if Touchscreen was touched, and prints X, Y and Pressure (Z) info on the TFT display and Serial Monitor
+  
+  
   if (touchscreen.tirqTouched() && touchscreen.touched()) {
-    // Get Touchscreen points
+
     TS_Point p = touchscreen.getPoint();
-    // Calibrate Touchscreen points with map function to the correct width and height
     x = map(p.x, 200, 3700, 1, SCREEN_WIDTH);
     y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT);
     z = p.z;
@@ -127,5 +206,9 @@ void loop() {
     printTouchToDisplay(x, y, z);
 
     delay(100);
+  }
+
+  if ((WiFi.status() == WL_CONNECTED)) {
+    artnet.read();
   }
 }
