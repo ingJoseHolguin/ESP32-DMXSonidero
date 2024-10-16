@@ -10,8 +10,6 @@
 // Config Net
 const char* ssid = "iPhone Pepon";
 const char* password = "1234qwer";
-//const char* ssid = "Motomami";
-//const char* password = "Soporte01";
 
 #define DHCP_DISABLED
 
@@ -37,11 +35,6 @@ int transmitPinB = 21;
 int receivePinB = 16;  // Not connected
 int enablePinB = 19;
 
-dmx_port_t dmxPortA = 1;
-dmx_port_t dmxPortB = 2;
-
-byte dataA[DMX_PACKET_SIZE];
-byte dataB[DMX_PACKET_SIZE];
 
 const int startUniverse = 0;  
 const int maxUniverses = 2;
@@ -146,64 +139,69 @@ void setup() {
   Serial.print("Local ESP32 IP: ");
   Serial.println(WiFi.localIP());
 
-  artnet.setArtDmxCallback(onArtNetFrame);
-  artnet.begin("ESP32-ArtNet-to-DMX-Converter");
-
-  dmx_set_pin(dmxPortA, transmitPinA, receivePinA, enablePinA);
-  dmx_set_pin(dmxPortB, transmitPinB, receivePinB, enablePinB);
-
-  dmx_driver_install(dmxPortA, DMX_DEFAULT_INTR_FLAGS);
-  dmx_driver_install(dmxPortB, DMX_DEFAULT_INTR_FLAGS);
-
   tft.drawCentreString("Hello, world!", centerX, 30, FONT_SIZE);
   tft.drawCentreString("Touch screen to test", centerX, centerY, FONT_SIZE);
 }
 
-void onArtNetFrame(uint16_t universe, uint16_t numberOfChannels, uint8_t sequence, uint8_t* dmxData) {
-  sendFrame = 1;
 
-  if ((universe - startUniverse) < maxUniverses)
-    universesReceived[universe - startUniverse] = 1;
 
-  for (int i = 0; i < maxUniverses; i++) {
-    if (universesReceived[i] == 0) {
-      sendFrame = 0;
-      break;
-    }
-  }
-  
-  for (int i = 0; i < numberOfChannels; i++) {
-    if (universe == startUniverse)
-      dataA[i + 1] = dmxData[i];
-    else if (universe == startUniverse + 1)
-      dataB[i + 1] = dmxData[i];
-  }
-
-   
-  previousDataLength = numberOfChannels;
-
-  dmx_write(dmxPortA, dataA, DMX_MAX_PACKET_SIZE);
-  dmx_write(dmxPortB, dataB, DMX_MAX_PACKET_SIZE);
-  dmx_send(dmxPortA, DMX_PACKET_SIZE);
-  dmx_send(dmxPortB, DMX_PACKET_SIZE);
-  dmx_wait_sent(dmxPortA, DMX_TIMEOUT_TICK);
-  dmx_wait_sent(dmxPortB, DMX_TIMEOUT_TICK);
-  
-  memset(universesReceived, 0, maxUniverses);
-}
+byte count=1;
 
 void loop() {
+
+  if (Serial.available() > 0) {
+    // Leemos el primer carácter ingresado
+    char input = Serial.read();
+    
+    // Ejecutamos diferentes funciones dependiendo del carácter recibido
+    if (input == 'r') {
+      tft.fillRect(10, 10, 100, 50, ILI9341_RED);  
+    };
+
+    if (input == 'b') {
+      tft.fillRect(10, 10, 100, 50, ILI9341_BLUE);  
+    };
+
+    if (input == 'g') {
+      tft.fillRect(10, 10, 100, 50, ILI9341_GREEN);  
+    };
+
+    if (input == 'a') {
+      tft.fillRect(10, 10, 100, 50, ILI9341_BLACK);  
+    };
+
+    if (input == 'w') {
+      tft.fillRect(10, 10, 100, 50, ILI9341_WHITE);  
+    };
+  }
   
   
   if (touchscreen.tirqTouched() && touchscreen.touched()) {
 
-    TS_Point p = touchscreen.getPoint();
-    x = map(p.x, 200, 3700, 1, SCREEN_WIDTH);
-    y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT);
-    z = p.z;
+    switch (count)
+    {
+    case 1:
+      tft.fillRect(10, 10, 100, 50, ILI9341_RED);  
+      break;
+    case 2:
+      tft.fillRect(10, 10, 100, 50, ILI9341_BLUE);  
+      break;
+    case 3:
+      tft.fillRect(10, 10, 100, 50, ILI9341_GREEN);  
+      break;
+    case 4:
+      tft.fillRect(10, 10, 100, 50, ILI9341_BLACK);  
+      break;
+    case 5:
+      tft.fillRect(10, 10, 100, 50, ILI9341_WHITE);  
+      break;
+    
+    default:
+      count = 1;
+      break;
+    }   
 
-    printTouchToSerial(x, y, z);
-    printTouchToDisplay(x, y, z);
+    count++;
 
     delay(100);
   }
