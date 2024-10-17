@@ -126,14 +126,9 @@ void setup() {
   int centerX = SCREEN_WIDTH / 2;
   int centerY = SCREEN_HEIGHT / 2;
 
-  //Config Wifi & init Arnet
-  WiFi.begin(ssid, password);
-  Serial.println("\nConnecting");
 
-  while (WiFi.status() != WL_CONNECTED) {
-  Serial.print(".");
-  delay(100);
-  }
+ 
+  
 
   Serial.println("\nConnected to the WiFi network");
   Serial.print("Local ESP32 IP: ");
@@ -181,29 +176,29 @@ void loop() {
     switch (count)
     {
     case 1:
-      tft.fillRect(10, 10, 100, 50, ILI9341_RED);  
+      tft.fillRect(0, 0, 320, 240, ILI9341_RED);  
       break;
     case 2:
-      tft.fillRect(10, 10, 100, 50, ILI9341_BLUE);  
+      tft.fillRect(0, 0, 320, 240, ILI9341_GREEN); 
       break;
     case 3:
-      tft.fillRect(10, 10, 100, 50, ILI9341_GREEN);  
+      tft.fillRect(0, 0, 320, 240, ILI9341_BLUE); 
       break;
     case 4:
-      tft.fillRect(10, 10, 100, 50, ILI9341_BLACK);  
+      tft.fillRect(0, 0, 320, 240, ILI9341_WHITE);
       break;
     case 5:
-      tft.fillRect(10, 10, 100, 50, ILI9341_WHITE);  
+      tft.fillRect(0, 0, 320, 240, ILI9341_BLACK);
       break;
     
     default:
-      count = 1;
+      count = 0;
       break;
     }   
 
     count++;
 
-    delay(100);
+    delay(250);
   }
 
   if ((WiFi.status() == WL_CONNECTED)) {
